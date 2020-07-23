@@ -1,18 +1,32 @@
 {
-  "name": "stream-cam",
+  "name": "@volcanoyt/stream-cam",
   "version": "1.0.0",
   "description": "Stream your camera with auto switch offline if camera off or down but keep live it on youtube etc",
   "main": "index.js",
   "author": "Akbar Yahya",
   "bin": {
-    "stream-cam": "./index.js"
+    "stream-cam": "index.js"
   },
   "license": "GPL-3.0",
   "dependencies": {
     "minimist": "1.2.5"
   },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/volcanoyt/Docker-Stream-Manager.git"
-  }
+    "url": "git+https://github.com/volcanoyt/Docker-Stream-Manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/volcanoyt/Docker-Stream-Manager/issues"
+  },
+  "homepage": "https://github.com/volcanoyt/Docker-Stream-Manager#readme",
+  "keywords": [
+    "ffmpeg",
+    "cctv",
+    "camera",
+    "stream",
+    "youtube"
+  ]
 }

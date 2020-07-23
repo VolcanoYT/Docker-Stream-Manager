@@ -57,7 +57,7 @@ var tops = "mjpeg";
 // screen size, our camera frame and offline frame will adjust so that data is not damaged.
 var resot = "854x480";
 // This is our camera format and will be re-encoded to varb "tops"
-var camera_type = "flv";
+var camera_type = (argv.format) ? argv.format : 1;
 
 var last_offline = null;
 var last_frame = null;
@@ -69,7 +69,7 @@ var is_run_magic_box = true;
 var is_run_ourcamera = false;
 
 var recode = "-f lavfi -i anullsrc -c:v libx264 -c:a aac -ar 44100 -ac 2";
-var patch = "-r " + fps + " -g " + gfps + " -s " + resot + " -f " + tops + " -";
+var patch = "-r " + fps + " -g " + gfps + " -s " + resot + " -f " + tops + " -"; //-c:v "+tops+" 
 
 // To make the auto switches work well, we have to re-encode format according to camera so that data is not corrupted.
 var offline_fm = spawn("ffmpeg", ("-re -f image2 -loop 1 -t 1 -i " + url_off + " " + patch).split(" "));
@@ -184,7 +184,17 @@ function MainCam(kill = false, restart = false) {
       console.log('error kill main cam');
     }
   } else {
-    our_cam = spawn("ffmpeg", ("-re -f " + camera_type + " -i " + url_cam + " " + patch).split(" "));
+    //flv
+    var tmp_type = "-re -f flv";
+    var tmp_bns  = "";    
+    if(camera_type == 2){
+      //m3u8
+      tmp_type = "-re";
+      tmp_bns  = "-c:v mjpeg";
+    }
+    var tp = tmp_type + " -i " + url_cam + " "+tmp_bns+" " + patch;
+    //console.log(tp);
+    our_cam = spawn("ffmpeg", (tp).split(" "));
     our_cam.on("exit", (code) => {
       console.log("Our Camera: error with " + code);
       return MainCam(true);

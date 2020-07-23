@@ -15,4 +15,4 @@ RUN npm install
 COPY --chown=node:node data .
 
 ENTRYPOINT ["node","index.js"]
-CMD ["--cam","","--stream",""]
+CMD ["--cam","","--stream","","--format",""]
