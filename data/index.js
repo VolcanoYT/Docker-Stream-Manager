@@ -19,6 +19,13 @@ https://github.com/ThePooN/rtmp-fallback
 https://github.com/Hakkin/streamRIP
 https://github.com/phaux/node-ffmpeg-stream
 
+- Problem -
+there is a new problem, if we stream continuously it will produce a delayed time which increases for example more 3 hours will result in a delayed time of about 30 minutes which i think is bad enough, so anyone help me fix this.
+https://stackoverflow.com/a/54979040
+https://stackoverflow.com/questions/59940687/ffmpeg-youtube-live-bad-video-settings-please-use-a-keyframe-frequency-o
+
+Maybe Instead of using setInterval, why no just using setTimeout with re-calculated delay everytime, otherwise the delay will increase over time because of the time it takes to write to the console and pass data to ffmpeg?
+
 */
 
 var argv = require('minimist')(process.argv.slice(2));
@@ -41,17 +48,17 @@ if (isEmpty(url_cam)) {
 console.log("Stream " + url_cam + " to " + url_live);
 
 // if timeout is reached camera will swicth to offline if long time it will use last frame and it should freeze
-var timeout = 2;
+var timeout = 10;
 // if camera is offline, try waiting again for 30 seconds to connect.
-var next_scan = 30;
-// don't edit anything
-var tmp_scan_next = 0;
+var next_scan = 15;
+// if camera has too many errors, end stream
+var wait_dc = 999;
 // if main program is broken close it.
 var auto_exit = true;
-// pipe a single jpeg file 30 times per second
-var gfps = 30;
-// lock fps
-var fps = 10;
+// pipe a single jpeg file 8 times per second
+var keyframe = 2;
+var fps = 15;
+var g_set = fps * keyframe; //8x2 = 16
 // it's easier to combine frames with mjpeg format than mpegts but that's no audio.
 var tops = "mjpeg";
 
@@ -70,19 +77,21 @@ if (camera_type < 1 || isNaN(camera_type)) {
 }
 
 var last_offline = null;
+var last_offline_ok = false;
+
 var last_frame = null;
+
 var last_time = Math.floor(Date.now() / 1000);
 var last_magic = Math.floor(Date.now() / 1000);
 
 //Normally this should always be true at startup, so there's no need to edit anything.
 var is_run_magic_box = true;
-var is_run_ourcamera = false;
 
-var recode = "-f lavfi -i anullsrc -c:v libx264 -c:a aac -ar 44100 -ac 2";
-var patch = "-r " + fps + " -g " + gfps + " -s " + resot + " -f " + tops + " -"; //-c:v "+tops+" 
+var patch = " -s " + resot + " -f " + tops + " -";
 
 // To make the auto switches work well, we have to re-encode format according to camera so that data is not corrupted.
-var offline_fm = spawn("ffmpeg", ("-re -f image2 -loop 1 -t 1 -i " + url_off + " " + patch).split(" "));
+var offline_fm = spawn("ffmpeg", ("-f image2 -loop 1 -t 1 -i " + url_off + patch).split(" "));
+/*
 offline_fm.stderr.on("data", (msg) => {
   var check_msg = msg.toString();
   if (check_msg.includes("deprecated pixel")) {
@@ -91,6 +100,7 @@ offline_fm.stderr.on("data", (msg) => {
     console.log("offline_fm", msg.toString());
   }
 });
+*/
 offline_fm.on("exit", (code) => {
   if (code == 0) {
     console.log('successfully created a file');
@@ -103,10 +113,11 @@ offline_fm.on("exit", (code) => {
 });
 offline_fm.stdout.on("data", (c) => {
   last_offline = c;
+  last_offline_ok = true;
 });
 
 //This is main stream, linking two frames, if this is down it will finish everything so make sure it lives
-var magic_box = spawn("ffmpeg", ("-re -f " + tops + " -i - " + recode + " -f flv " + url_live).split(" "));
+var magic_box = spawn("ffmpeg", ("-re -r " + fps + " -f " + tops + " -i - -f lavfi -i anullsrc -c:v libx264 -g " + g_set + " -c:a aac -ar 44100 -ac 2 -f flv " + url_live).split(" "));
 magic_box.on("exit", (code) => {
   console.log("magic_box: big problem with code " + code);
   is_run_magic_box = false;
@@ -139,23 +150,18 @@ magic_box.stdout.on('error', function (err) {
   }
 });
 
-//This is formula for this auto switch to work.
+// This is formula for this auto switch to work.
 setInterval(() => {
-
   //do not process if magic box is not yet online.
   if (is_run_magic_box) {
-
     //If there are no offline files, don't send them yet (TODO: auto exit if 3x faild?)
-    if (!isEmpty(last_offline)) {
-
+    if (last_offline_ok) {
       //copy offline to tmp
       var tmp_frame = last_offline;
-
       // If a new frame is found send it.
       if (!isEmpty(last_frame)) {
         tmp_frame = last_frame;
       };
-
       //Start trying to send it to magic box
       try {
         magic_box.stdin.write(tmp_frame);
@@ -165,19 +171,15 @@ setInterval(() => {
         console.log(tmp_frame);
         last_frame = null;
       }
-
       //remove tmp
       tmp_frame = null;
     }
-
   }
-
-}, 1000 / gfps);
+}, 1000 / g_set);
 
 // This is our camera, it doesn't have to be live
 var our_cam;
 var temp_wait_dc = 0;
-var wait_dc = 999;
 
 function MainCam(kill = false, restart = false) {
   if (kill) {
@@ -197,23 +199,14 @@ function MainCam(kill = false, restart = false) {
     }
   } else {
     //flv
-    var tmp_type = "-re -f flv";
-    var tmp_bns = " ";
+    var tmp_type = "-re -r "+fps+" -f flv ";
+    var tmp_bns = "";
     if (camera_type == 2) {
       //m3u8
-      tmp_type = "-re";
-      tmp_bns = " -c:v " + tops + " ";
-    } else if (camera_type == 3) {
-      //jpg
-      tmp_type = "-f image2 -stream_loop 1";
-      tmp_bns = " -c:v mjpeg ";
-    } else if (camera_type == 4) {
-      //mjpeg
-      tmp_type = "-re -f mjpeg";
-      tmp_bns = " -c:v mjpeg ";
+      tmp_type = "";
+      tmp_bns = "-c:v " + tops + "";
     }
-    var tp = tmp_type + " -i " + url_cam + tmp_bns + patch;
-    //console.log(tp);
+    var tp = tmp_type + "-i " + url_cam + patch;
     our_cam = spawn("ffmpeg", (tp).split(" "));
     our_cam.on("exit", (code) => {
       console.log("Our Camera: error with " + code);
@@ -222,15 +215,23 @@ function MainCam(kill = false, restart = false) {
     our_cam.stderr.on("data", (msg) => {
       var check_msg = msg.toString();
       if (check_msg.includes("Error writing trailer")) {
-        is_run_ourcamera = false;
-      } else if (check_msg.includes("could not find codec") || check_msg.includes("Unable to find a suitable")) {
-        is_run_ourcamera = false;
-        console.log("("+temp_wait_dc+") Your camera might not support or maybe your camera have bad internet");
+
+        console.log("Unstable network");
+        if (auto_exit) {
+          console.log("Ending stream...");
+          process.exit(1);
+        }
+
+      } else if (check_msg.includes("could not find codec") || check_msg.includes("Unable to find a suitable") || check_msg.includes("does not contain any stream")) {
+
+        console.log("(" + temp_wait_dc + ") Your camera might not support or maybe your camera have bad internet");
+        console.log("Debug: ", check_msg);
+        console.log("CMD: ", tp);
+
         if (temp_wait_dc > wait_dc) {
           temp_wait_dc = 0;
+
           console.log("Too many errors..");
-          console.log("Debug: ", check_msg);
-          console.log("CMD: ", tp);
           if (auto_exit) {
             console.log("Ending stream...");
             process.exit(1);
@@ -238,22 +239,20 @@ function MainCam(kill = false, restart = false) {
         } else {
           temp_wait_dc++;
         }
-      } else if (check_msg.includes("does not contain any stream")) {
-        // jika stream tidak tersedia
-        is_run_ourcamera = false;
+        
       } else if (check_msg.includes("deprecated pixel")) {
         // skip
       } else if (check_msg.match(/time=(.*?) bitrate/)) {
         // stream jalan normal
         last_time = Math.floor(Date.now() / 1000);
-        temp_wait_dc = 0;
+        temp_wait_dc = 0;        
       } else {
         console.log("Our Camera", check_msg);
+        last_time = Math.floor(Date.now() / 1000);
       }
     });
     our_cam.stdout.on("data", (c) => {
       last_frame = c;
-      is_run_ourcamera = true;
     });
     our_cam.on("error", function (err) {
       console.log("Server error:", err);
@@ -262,10 +261,12 @@ function MainCam(kill = false, restart = false) {
 }
 
 // check if camera offline and wait it.
+var tmp_scan_next = 0;
 setInterval(() => {
+  //console.log(delayed+" | "+tmp_set);
   var now = Math.floor(Date.now() / 1000) - last_time;
   if (now >= timeout) {
-    //console.log('Slow...' + now);
+    console.log('Slow...' + now);
     last_frame = null;
     if (tmp_scan_next > next_scan) {
       tmp_scan_next = 0;
