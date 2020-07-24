@@ -24,8 +24,8 @@ https://github.com/phaux/node-ffmpeg-stream
 var argv = require('minimist')(process.argv.slice(2));
 var spawn = require("child_process").spawn;
 
-var url_live = argv.stream;
-var url_cam = argv.cam;
+var url_live = (!isEmpty(argv.stream)) ? argv.stream : process.env.stream;
+var url_cam = (!isEmpty(argv.cam)) ? argv.cam : process.env.cam;
 var url_off = "/home/node/app/disconnected.png";
 
 if (isEmpty(url_live)) {
@@ -54,10 +54,20 @@ var gfps = 30;
 var fps = 10;
 // it's easier to combine frames with mjpeg format than mpegts but that's no audio.
 var tops = "mjpeg";
+
 // screen size, our camera frame and offline frame will adjust so that data is not damaged.
-var resot = "854x480";
+var resot = (!isEmpty(argv.screen)) ? argv.screen : process.env.screen;
+if (isEmpty(resot)) {
+  console.log("Use standard values 480p");
+  resot = "854x480";
+}
+
 // This is our camera format and will be re-encoded to varb "tops"
-var camera_type = (argv.format) ? argv.format : 1;
+var camera_type = parseInt((!isEmpty(argv.format)) ? argv.format : process.env.format);
+if (camera_type < 1 || isNaN(camera_type)) {
+  console.log("Need Format!");
+  process.exit(1);
+}
 
 var last_offline = null;
 var last_frame = null;
@@ -166,6 +176,8 @@ setInterval(() => {
 
 // This is our camera, it doesn't have to be live
 var our_cam;
+var temp_wait_dc = 0;
+var wait_dc = 999;
 
 function MainCam(kill = false, restart = false) {
   if (kill) {
@@ -186,13 +198,21 @@ function MainCam(kill = false, restart = false) {
   } else {
     //flv
     var tmp_type = "-re -f flv";
-    var tmp_bns  = "";    
-    if(camera_type == 2){
+    var tmp_bns = " ";
+    if (camera_type == 2) {
       //m3u8
       tmp_type = "-re";
-      tmp_bns  = "-c:v mjpeg";
+      tmp_bns = " -c:v " + tops + " ";
+    } else if (camera_type == 3) {
+      //jpg
+      tmp_type = "-f image2 -stream_loop 1";
+      tmp_bns = " -c:v mjpeg ";
+    } else if (camera_type == 4) {
+      //mjpeg
+      tmp_type = "-re -f mjpeg";
+      tmp_bns = " -c:v mjpeg ";
     }
-    var tp = tmp_type + " -i " + url_cam + " "+tmp_bns+" " + patch;
+    var tp = tmp_type + " -i " + url_cam + tmp_bns + patch;
     //console.log(tp);
     our_cam = spawn("ffmpeg", (tp).split(" "));
     our_cam.on("exit", (code) => {
@@ -203,12 +223,30 @@ function MainCam(kill = false, restart = false) {
       var check_msg = msg.toString();
       if (check_msg.includes("Error writing trailer")) {
         is_run_ourcamera = false;
+      } else if (check_msg.includes("could not find codec") || check_msg.includes("Unable to find a suitable")) {
+        is_run_ourcamera = false;
+        console.log("("+temp_wait_dc+") Your camera might not support or maybe your camera have bad internet");
+        if (temp_wait_dc > wait_dc) {
+          temp_wait_dc = 0;
+          console.log("Too many errors..");
+          console.log("Debug: ", check_msg);
+          console.log("CMD: ", tp);
+          if (auto_exit) {
+            console.log("Ending stream...");
+            process.exit(1);
+          }
+        } else {
+          temp_wait_dc++;
+        }
       } else if (check_msg.includes("does not contain any stream")) {
+        // jika stream tidak tersedia
         is_run_ourcamera = false;
       } else if (check_msg.includes("deprecated pixel")) {
-        //skip
+        // skip
       } else if (check_msg.match(/time=(.*?) bitrate/)) {
+        // stream jalan normal
         last_time = Math.floor(Date.now() / 1000);
+        temp_wait_dc = 0;
       } else {
         console.log("Our Camera", check_msg);
       }
