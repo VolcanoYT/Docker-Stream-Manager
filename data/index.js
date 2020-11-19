@@ -199,14 +199,23 @@ function MainCam(kill = false, restart = false) {
     }
   } else {
     //flv
-    var tmp_type = "-re -r "+fps+" -f flv ";
+    var tmp_type = "";
     var tmp_bns = "";
-    if (camera_type == 2) {
+    if (camera_type == 1) {
+      //flv
+      tmp_type = "-re -r "+fps+" -f flv ";
+      tmp_bns = "";
+    }else if (camera_type == 2) {
       //m3u8
       tmp_type = "";
       tmp_bns = "-c:v " + tops + "";
+    }else if (camera_type == 3) {
+      //tcp rtsp
+      tmp_type = "-rtsp_transport tcp -re ";
+      tmp_bns = "-c:v " + tops + "";
     }
     var tp = tmp_type + "-i " + url_cam + patch;
+    console.log("CMD: ", tp);
     our_cam = spawn("ffmpeg", (tp).split(" "));
     our_cam.on("exit", (code) => {
       console.log("Our Camera: error with " + code);
@@ -225,8 +234,7 @@ function MainCam(kill = false, restart = false) {
       } else if (check_msg.includes("could not find codec") || check_msg.includes("Unable to find a suitable") || check_msg.includes("does not contain any stream")) {
 
         console.log("(" + temp_wait_dc + ") Your camera might not support or maybe your camera have bad internet");
-        console.log("Debug: ", check_msg);
-        console.log("CMD: ", tp);
+        console.log("Debug: ", check_msg);        
 
         if (temp_wait_dc > wait_dc) {
           temp_wait_dc = 0;
